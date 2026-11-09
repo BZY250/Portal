@@ -12,7 +12,8 @@ find_package(dobby REQUIRED CONFIG)
 add_library(portal SHARED
         main.cpp
         elf_util.cpp
-        sensor_hook.cpp)
+        sensor_hook.cpp
+        step_sim.cpp)
 
 target_link_libraries(portal android log)
 target_link_libraries(portal dobby::dobby)

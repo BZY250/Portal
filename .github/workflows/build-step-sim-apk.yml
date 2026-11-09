@@ -1,0 +1,43 @@
+name: Build Portal step-sim APK (arm64, debug-signed)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for version code)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;26.1.10909125'
+
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build arm64 debug APK
+        run: ./gradlew :app:assembleArm64Debug --no-daemon --stacktrace
+
+      - name: Locate APK
+        run: find app/build/outputs -name "*.apk" -exec ls -la {} \;
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Portal-arm64-debug-apk
+          path: app/build/outputs/apk/arm64/debug/*.apk

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Parcel
+import android.os.SystemClock
 import moe.fuqiuluo.dobby.Dobby
 import moe.fuqiuluo.xposed.hooks.LocationServiceHook
 import moe.fuqiuluo.xposed.utils.FakeLoc
@@ -75,6 +76,12 @@ object RemoteCommandHandler {
                 FakeLoc.altitude = altitude
                 FakeLoc.accuracy = accuracy
 
+                // 步数模拟：开启会话（首次记录开始时刻，native 侧维护单调步数）
+                if (FakeLoc.stepStartTimeMs == 0L) {
+                    FakeLoc.stepStartTimeMs = SystemClock.elapsedRealtime()
+                }
+                syncStepToNative()
+
                 return true
             }
             "stop" -> {
@@ -83,6 +90,7 @@ object RemoteCommandHandler {
                 if (isLoadedLibrary) {
                     Dobby.setStatus(false)
                 }
+                syncStepToNative()
                 return true
             }
             "is_start" -> {
@@ -147,6 +155,7 @@ object RemoteCommandHandler {
             "set_speed" -> {
                 val speed = rely.getDouble("speed", 0.0)
                 FakeLoc.speed = speed
+                syncStepToNative()
                 return true
             }
             "set_bearing" -> {
@@ -229,6 +238,15 @@ object RemoteCommandHandler {
                 val disableRequestGeofence = rely.getBoolean("disable_request_geofence", FakeLoc.disableRequestGeofence)
                 val disableGetFromLocation = rely.getBoolean("disable_get_from_location", FakeLoc.disableGetFromLocation)
 
+                // 步数/步频模拟配置（融合自 LocationSpoofer）
+                val enableStepSim = rely.getBoolean("enable_step_sim", FakeLoc.enableStepSim)
+                val autoCadence = rely.getBoolean("auto_cadence", FakeLoc.autoCadence)
+                var stepCadenceSpm = rely.getInt("step_cadence_spm", FakeLoc.stepCadenceSpm)
+                if (stepCadenceSpm < 60) stepCadenceSpm = 60
+                if (stepCadenceSpm > 240) stepCadenceSpm = 240
+                val realismLevel = rely.getInt("realism_level", FakeLoc.realismLevel)
+                val gaitTemplate = rely.getString("gait_template", FakeLoc.gaitTemplate)
+
                 FakeLoc.enable = enable
                 FakeLoc.speed = speed
                 FakeLoc.altitude = altitude
@@ -243,6 +261,13 @@ object RemoteCommandHandler {
                 FakeLoc.enableNMEA = enableNMEA
                 FakeLoc.disableRequestGeofence = disableRequestGeofence
                 FakeLoc.disableGetFromLocation = disableGetFromLocation
+
+                FakeLoc.enableStepSim = enableStepSim
+                FakeLoc.autoCadence = autoCadence
+                FakeLoc.stepCadenceSpm = stepCadenceSpm
+                FakeLoc.realismLevel = realismLevel
+                FakeLoc.gaitTemplate = gaitTemplate
+                syncStepToNative()
                 return true
             }
             "sync_config" -> {
@@ -265,6 +290,11 @@ object RemoteCommandHandler {
                 rely.putBoolean("hide_mock", FakeLoc.hideMock)
                 rely.putBoolean("hook_wifi", FakeLoc.hookWifi)
                 rely.putBoolean("need_downgrade_to_2g", FakeLoc.needDowngradeToCdma)
+                rely.putBoolean("enable_step_sim", FakeLoc.enableStepSim)
+                rely.putBoolean("auto_cadence", FakeLoc.autoCadence)
+                rely.putInt("step_cadence_spm", FakeLoc.stepCadenceSpm)
+                rely.putInt("realism_level", FakeLoc.realismLevel)
+                rely.putString("gait_template", FakeLoc.gaitTemplate)
                 return true
             }
             "broadcast_location" -> {
@@ -289,6 +319,7 @@ object RemoteCommandHandler {
 
                 if (isLoadedLibrary) {
                     Dobby.setStatus(FakeLoc.enable)
+                    syncStepToNative()
                 }
 
                 return true
@@ -317,10 +348,30 @@ object RemoteCommandHandler {
 //        return LocationServiceProxyHook.injectLocation(location, realLocation)
 //    }
 
+    /**
+     * 把当前速度/开关/步数基线/步态模板下发到 native（libportal.so 的 gStep），
+     * 让 native 在 system_server 的 SensorEventQueue::write 里合成步数/步频/加速度。
+     * 注意：native 侧有单调地板，静止（speed<=0.05）自动冻结，跨会话不回退。
+     */
+    private fun syncStepToNative() {
+        if (!isLoadedLibrary) return
+        Dobby.setMotion(
+            FakeLoc.enableStepSim && FakeLoc.enable,   // 定位开启且步数模拟开启时才合成
+            FakeLoc.autoCadence,
+            FakeLoc.stepCadenceSpm,
+            FakeLoc.speed,
+            FakeLoc.stepBase,
+            FakeLoc.stepStartTimeMs,
+            FakeLoc.realismLevel,
+            FakeLoc.gaitTemplate,
+        )
+    }
+
     private fun updateCoordinate(newLat: Double, newLon: Double): Boolean {
         if (newLat in -90.0..90.0 && newLon in -180.0..180.0) {
             FakeLoc.latitude = newLat
             FakeLoc.longitude = newLon
+            syncStepToNative()
             return true
         } else {
             Logger.error("Invalid latitude or longitude: $newLat, $newLon")

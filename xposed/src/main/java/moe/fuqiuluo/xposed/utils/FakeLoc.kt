@@ -129,6 +129,41 @@ object FakeLoc {
             }
         }
 
+    /**
+     * 步数模拟总开关（融合自 LocationSpoofer 的步数/步频自动匹配）
+     */
+    @Volatile var enableStepSim = false
+
+    /**
+     * 是否按速度自动匹配步频（否则用固定 stepCadenceSpm）
+     */
+    var autoCadence = true
+
+    /**
+     * 固定步频（步/分钟），60..240
+     */
+    var stepCadenceSpm = 165
+
+    /**
+     * 本会话起始累计步数（native 侧有单调地板，跨会话不回退）
+     */
+    @Volatile var stepBase = 2350L
+
+    /**
+     * 本会话开始时刻（elapsedRealtimeMillis）
+     */
+    @Volatile var stepStartTimeMs = 0L
+
+    /**
+     * 真实度等级 0..3（OFF/LOW/MEDIUM/HIGH）
+     */
+    var realismLevel = 0
+
+    /**
+     * 用户录制的步态模板编码（可为 null，格式 "v1;cadence;strideCount;x0,…;y0,…;z0,…"）
+     */
+    @Volatile var gaitTemplate: String? = null
+
     fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val radius = 6371000.0
         val phi1 = Math.toRadians(lat1)
